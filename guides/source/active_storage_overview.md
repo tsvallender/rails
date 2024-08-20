@@ -588,6 +588,41 @@ You can bypass the content type inference from the data by passing in
 If you don’t provide a content type and Active Storage can’t determine the
 file’s content type automatically, it defaults to application/octet-stream.
 
+There is an additional parameter `key` that can be used to specify folders/sub-folders
+in your S3 Bucket. AWS S3 otherwise uses a random key to name your files. This
+approach is helpful if you want to organize your S3 Bucket files better.
+
+```ruby
+@message.images.attach(
+  io: File.open('/path/to/file'),
+  filename: 'file.pdf',
+  content_type: 'application/pdf',
+  key: "#{Rails.env}/blog_content/intuitive_filename.pdf",
+  identify: false
+)
+```
+
+This way the file will get saved in the folder `[S3_BUCKET]/development/blog_content/`
+when you test this from your development environment. Note that if you use the key
+parameter, you have to ensure the key to be unique for the upload to go through. It is
+recommended to append the filename with a unique random key, something like:
+
+```ruby
+def s3_file_key
+  "#{Rails.env}/blog_content/intuitive_filename-#{SecureRandom.uuid}.pdf"
+end
+```
+
+```ruby
+@message.images.attach(
+  io: File.open('/path/to/file'),
+  filename: 'file.pdf',
+  content_type: 'application/pdf',
+  key: s3_file_key,
+  identify: false
+)
+```
+
 ### Replacing vs Adding Attachments
 
 By default in Rails, attaching files to a `has_many_attached` association will replace
@@ -950,18 +985,6 @@ Active Storage can use either [Vips][] or MiniMagick as the variant processor.
 The default depends on your `config.load_defaults` target version, and the
 processor can be changed by setting [`config.active_storage.variant_processor`][].
 
-The two processors are not fully compatible, so when migrating an existing application
-between MiniMagick and Vips, some changes have to be made if using options that are format
-specific:
-
-```erb
-<!-- MiniMagick -->
-<%= image_tag user.avatar.variant(resize_to_limit: [100, 100], format: :jpeg, sampling_factor: "4:2:0", strip: true, interlace: "JPEG", colorspace: "sRGB", quality: 80) %>
-
-<!-- Vips -->
-<%= image_tag user.avatar.variant(resize_to_limit: [100, 100], format: :jpeg, saver: { subsample_mode: "on", strip: true, interlace: true, quality: 80 }) %>
-```
-
 The parameters available are defined by the [`image_processing`][] gem and depend on the
 variant processor that you are using, but both support the following parameters:
 
@@ -974,8 +997,30 @@ variant processor that you are using, but both support the following parameters:
 | `crop` | `crop: [20, 50, 300, 300]` | Extracts an area from an image. The first two arguments are the left and top edges of area to extract, while the last two arguments are the width and height of the area to extract. |
 | `rotate` | `rotate: 90` | Rotates the image by the specified angle. |
 
-[`image_processing`][] has more options available (such as `saver` which allows image compression to be configured) in it's own documentation for the [Vips](https://github.com/janko/image_processing/blob/master/doc/vips.md) and [MiniMagick](https://github.com/janko/image_processing/blob/master/doc/minimagick.md) processors.
+[`image_processing`][] has all parameters available in it's own documentation
+for both the
+[Vips](https://github.com/janko/image_processing/blob/master/doc/vips.md) and
+[MiniMagick](https://github.com/janko/image_processing/blob/master/doc/minimagick.md)
+processors.
 
+Some parameters, including those listed above, accept additional processor
+specific options which can be passed as `key: value` pairs inside a hash:
+
+```erb
+<!-- Vips supports configuring `crop` for many of its transformations -->
+<%= image_tag user.avatar.variant(resize_to_fill: [100, 100, { crop: :centre }]) %>
+```
+
+If migrating an existing application between MiniMagick and Vips, processor
+specific options will need to be updated:
+
+```erb
+<!-- MiniMagick -->
+<%= image_tag user.avatar.variant(resize_to_limit: [100, 100], format: :jpeg, sampling_factor: "4:2:0", strip: true, interlace: "JPEG", colorspace: "sRGB", quality: 80) %>
+
+<!-- Vips -->
+<%= image_tag user.avatar.variant(resize_to_limit: [100, 100], format: :jpeg, saver: { subsample_mode: "on", strip: true, interlace: true, quality: 80 }) %>
+```
 
 [`config.active_storage.variable_content_types`]: configuring.html#config-active-storage-variable-content-types
 [`config.active_storage.variant_processor`]: configuring.html#config-active-storage-variant-processor
@@ -1044,7 +1089,7 @@ directly from the client to the cloud.
 
 To make direct uploads to a third-party service work, you’ll need to configure the service to allow cross-origin requests from your app. Consult the CORS documentation for your service:
 
-* [S3](https://docs.aws.amazon.com/AmazonS3/latest/dev/cors.html#how-do-i-enable-cors)
+* [S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enabling-cors-examples.html)
 * [Google Cloud Storage](https://cloud.google.com/storage/docs/configuring-cors)
 * [Azure Storage](https://docs.microsoft.com/en-us/rest/api/storageservices/cross-origin-resource-sharing--cors--support-for-the-azure-storage-services)
 
@@ -1278,10 +1323,10 @@ import { DirectUpload } from "@rails/activestorage"
 
 class Uploader {
   constructor(file, url) {
-    this.upload = new DirectUpload(this.file, this.url, this)
+    this.upload = new DirectUpload(file, url, this)
   }
 
-  upload(file) {
+  uploadFile(file) {
     this.upload.create((error, blob) => {
       if (error) {
         // Handle the error
@@ -1318,10 +1363,10 @@ class Uploader {
     const headers = { 'Authentication': `Bearer ${token}` }
     // INFO: Sending headers is an optional parameter. If you choose not to send headers,
     //       authentication will be performed using cookies or session data.
-    this.upload = new DirectUpload(this.file, this.url, this, headers)
+    this.upload = new DirectUpload(file, url, this, headers)
   }
 
-  upload(file) {
+  uploadFile(file) {
     this.upload.create((error, blob) => {
       if (error) {
         // Handle the error

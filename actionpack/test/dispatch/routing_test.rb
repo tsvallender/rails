@@ -31,7 +31,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
   def test_logout
     draw do
       controller :sessions do
-        delete "logout" => :destroy
+        delete "logout", action: :destroy
       end
     end
 
@@ -47,8 +47,8 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
       default_url_options host: "rubyonrails.org"
 
       controller :sessions do
-        get  "login" => :new
-        post "login" => :create
+        get  "login", action: :new
+        post "login", action: :create
       end
     end
 
@@ -77,7 +77,9 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_logout_redirect_without_to
     draw do
-      get "account/logout" => redirect("/logout"), :as => :logout_redirect
+      ActionDispatch.deprecator.silence do
+        get "account/logout" => redirect("/logout"), as: :logout_redirect
+      end
     end
 
     assert_equal "/account/logout", logout_redirect_path
@@ -272,7 +274,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_redirect_proc_with_request
     draw do
-      get "account/proc_req" => redirect { |params, req| "/#{req.method}" }
+      get "account/proc_req", to: redirect { |params, req| "/#{req.method}" }
     end
 
     get "/account/proc_req"
@@ -354,6 +356,20 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     assert_equal "openid#login", @response.body
   end
 
+  def test_websocket
+    draw do
+      connect "chat/live", to: "chat#live"
+    end
+
+    # HTTP/1.1 connection upgrade:
+    get "/chat/live", headers: { "REQUEST_METHOD" => "GET", "HTTP_CONNECTION" => "Upgrade", "HTTP_UPGRADE" => "websocket" }
+    assert_equal "chat#live", @response.body
+
+    # `rack.protocol` connection:
+    get "/chat/live", headers: { "REQUEST_METHOD" => "CONNECT", "rack.protocol" => "websocket" }
+    assert_equal "chat#live", @response.body
+  end
+
   def test_bookmarks
     draw do
       scope "bookmark", controller: "bookmarks", as: :bookmark do
@@ -416,14 +432,14 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
   def test_admin
     draw do
       constraints(ip: /192\.168\.1\.\d\d\d/) do
-        get "admin" => "queenbee#index"
+        get "admin", to: "queenbee#index"
       end
 
       constraints ::TestRoutingMapper::IpRestrictor do
-        get "admin/accounts" => "queenbee#accounts"
+        get "admin/accounts", to: "queenbee#accounts"
       end
 
-      get "admin/passwords" => "queenbee#passwords", :constraints => ::TestRoutingMapper::IpRestrictor
+      get "admin/passwords", to: "queenbee#passwords", constraints: ::TestRoutingMapper::IpRestrictor
     end
 
     get "/admin", headers: { "REMOTE_ADDR" => "192.168.1.100" }
@@ -763,7 +779,8 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
           member do
             put  :accessible_projects
-            post :resend, :generate_new_password
+            post :resend
+            post :generate_new_password
           end
         end
       end
@@ -812,7 +829,8 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     draw do
       resources :projects do
         resources :posts do
-          get  :archive, :toggle_view, on: :collection
+          get :archive, on: :collection
+          get :toggle_view, on: :collection
           post :preview, on: :member
 
           resource :subscription
@@ -972,13 +990,13 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_resource_does_not_modify_passed_options
     options = { id: /.+?/, format: /json|xml/ }
-    draw { resource :user, options }
+    draw { resource :user, **options }
     assert_equal({ id: /.+?/, format: /json|xml/ }, options)
   end
 
   def test_resources_does_not_modify_passed_options
     options = { id: /.+?/, format: /json|xml/ }
-    draw { resources :users, options }
+    draw { resources :users, **options }
     assert_equal({ id: /.+?/, format: /json|xml/ }, options)
   end
 
@@ -1034,7 +1052,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_sprockets
     draw do
-      get "sprockets.js" => ::TestRoutingMapper::SprocketsApp
+      get "sprockets.js", to: ::TestRoutingMapper::SprocketsApp
     end
 
     get "/sprockets.js"
@@ -1524,7 +1542,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_index
     draw do
-      get "/info" => "projects#info", :as => "info"
+      get "/info", to: "projects#info", as: "info"
     end
 
     assert_equal "/info", info_path
@@ -1533,8 +1551,10 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
   end
 
   def test_match_with_many_paths_containing_a_slash
-    draw do
-      get "get/first", "get/second", "get/third", to: "get#show"
+    assert_deprecated(ActionDispatch.deprecator) do
+      draw do
+        get "get/first", "get/second", "get/third", to: "get#show"
+      end
     end
 
     get "/get/first"
@@ -1570,9 +1590,11 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
   end
 
   def test_match_shorthand_with_multiple_paths_inside_namespace
-    draw do
-      namespace :proposals do
-        put "activate", "inactivate"
+    assert_deprecated(ActionDispatch.deprecator) do
+      draw do
+        namespace :proposals do
+          put "activate", "inactivate"
+        end
       end
     end
 
@@ -1650,8 +1672,8 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     draw do
       resources :replies do
         collection do
-          get "page/:page" => "replies#index", :page => %r{\d+}
-          get ":page" => "replies#index", :page => %r{\d+}
+          get "page/:page", to: "replies#index", page: %r{\d+}
+          get ":page", to: "replies#index", page: %r{\d+}
         end
       end
     end
@@ -1688,7 +1710,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_convention_with_explicit_end
     draw do
-      get "sign_in" => "sessions#new"
+      get "sign_in", to: "sessions#new"
     end
 
     get "/sign_in"
@@ -1698,7 +1720,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_redirect_with_complete_url_and_status
     draw do
-      get "account/google" => redirect("http://www.google.com/", status: 302)
+      get "account/google", to: redirect("http://www.google.com/", status: 302)
     end
 
     get "/account/google"
@@ -1956,7 +1978,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     draw do
       scope path: "api" do
         resource :me
-        get "/" => "mes#index"
+        get "/", to: "mes#index"
       end
     end
 
@@ -1973,7 +1995,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
       scope path: "api" do
         scope :v2 do
           resource :me, as: "v2_me"
-          get "/" => "mes#index"
+          get "/", to: "mes#index"
         end
 
         scope :v3, :admin do
@@ -2469,28 +2491,28 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
       resources :customers do
         get :recent, on: :collection
         get "profile", on: :member
-        get "secret/profile" => "customers#secret", :on => :member
-        post "preview" => "customers#preview", :as => :another_preview, :on => :new
+        get "secret/profile", to: "customers#secret", on: :member
+        post "preview", to: "customers#preview", as: :another_preview, on: :new
         resource :avatar do
-          get "thumbnail" => "avatars#thumbnail", :as => :thumbnail, :on => :member
+          get "thumbnail", to: "avatars#thumbnail", as: :thumbnail, on: :member
         end
         resources :invoices do
-          get "outstanding" => "invoices#outstanding", :on => :collection
+          get "outstanding", to: "invoices#outstanding", on: :collection
           get "overdue", action: :overdue, on: :collection
-          get "print" => "invoices#print", :as => :print, :on => :member
-          post "preview" => "invoices#preview", :as => :preview, :on => :new
+          get "print", to: "invoices#print", as: :print, on: :member
+          post "preview", to: "invoices#preview", as: :preview, on: :new
         end
         resources :notes, shallow: true do
-          get "preview" => "notes#preview", :as => :preview, :on => :new
-          get "print" => "notes#print", :as => :print, :on => :member
+          get "preview", to: "notes#preview", as: :preview, on: :new
+          get "print", to: "notes#print", as: :print, on: :member
         end
       end
 
       namespace :api do
         resources :customers do
-          get "recent" => "customers#recent", :as => :recent, :on => :collection
-          get "profile" => "customers#profile", :as => :profile, :on => :member
-          post "preview" => "customers#preview", :as => :preview, :on => :new
+          get "recent", to: "customers#recent", as: :recent, on: :collection
+          get "profile", to: "customers#profile", as: :profile, on: :member
+          post "preview", to: "customers#preview", as: :preview, on: :new
         end
       end
     end
@@ -2600,7 +2622,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_url_generator_for_optional_prefix_dynamic_segment
     draw do
-      get "(/:username)/followers" => "followers#index"
+      get "(/:username)/followers", to: "followers#index"
     end
 
     get "/bob/followers"
@@ -2616,7 +2638,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_url_generator_for_optional_suffix_static_and_dynamic_segment
     draw do
-      get "/groups(/user/:username)" => "groups#index"
+      get "/groups(/user/:username)", to: "groups#index"
     end
 
     get "/groups/user/bob"
@@ -2632,7 +2654,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_url_generator_for_optional_prefix_static_and_dynamic_segment
     draw do
-      get "(/user/:username)/photos" => "photos#index"
+      get "(/user/:username)/photos", to: "photos#index"
     end
 
     get "/user/bob/photos"
@@ -3366,7 +3388,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
     draw do
       resources :posts, only: [:index, :show] do
         resources :comments, except: :destroy do
-          get "views" => "comments#views", :as => :views
+          get "views", to: "comments#views", as: :views
         end
       end
     end
@@ -3454,7 +3476,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_action_from_path_is_frozen
     draw do
-      get "search" => "search"
+      get "search", to: "search#search"
     end
 
     get "/search"
@@ -3463,7 +3485,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_multiple_positional_args_with_the_same_name
     draw do
-      get "/downloads/:id/:id.tar" => "downloads#show", as: :download, format: false
+      get "/downloads/:id/:id.tar", to: "downloads#show", as: :download, format: false
     end
 
     expected_params = {
@@ -3759,7 +3781,7 @@ class TestRoutingMapper < ActionDispatch::IntegrationTest
 
   def test_head_fetch_with_mount_on_root
     draw do
-      get "/home" => "test#index"
+      get "/home", to: "test#index"
       mount lambda { |env| [200, {}, [env["REQUEST_METHOD"]]] }, at: "/"
     end
 
@@ -3962,8 +3984,8 @@ class TestAltApp < ActionDispatch::IntegrationTest
     end
   }.new
   AltRoutes.draw do
-    get "/" => TestAltApp::XHeader.new, :constraints => { x_header: /HEADER/ }
-    get "/" => TestAltApp::AltApp.new
+    get "/", to: TestAltApp::XHeader.new, constraints: { x_header: /HEADER/ }
+    get "/", to: TestAltApp::AltApp.new
   end
 
   APP = build_app AltRoutes
@@ -3998,12 +4020,12 @@ class TestAppendingRoutes < ActionDispatch::IntegrationTest
     s = self
     routes = ActionDispatch::Routing::RouteSet.new
     routes.append do
-      get "/hello"   => s.simple_app("fail")
-      get "/goodbye" => s.simple_app("goodbye")
+      get "/hello",   to: s.simple_app("fail")
+      get "/goodbye", to: s.simple_app("goodbye")
     end
 
     routes.draw do
-      get "/hello" => s.simple_app("hello")
+      get "/hello", to: s.simple_app("hello")
     end
     @app = self.class.build_app routes
   end
@@ -4037,6 +4059,7 @@ class TestNamespaceWithControllerOption < ActionDispatch::IntegrationTest
     routes = ActionDispatch::Routing::RouteSet.new
     routes.draw(&block)
     @app = self.class.build_app routes
+    @routes = routes
   end
 
   def test_missing_controller
@@ -4054,7 +4077,16 @@ class TestNamespaceWithControllerOption < ActionDispatch::IntegrationTest
         get "/foo/bar", to: "foo"
       end
     }
-    assert_match(/:to must respond to/, ex.message)
+    assert_match(/Missing :controller/, ex.message)
+  end
+
+  def test_implicit_controller_with_to
+    draw do
+      controller :foo do
+        get "/foo/bar", to: "bar"
+      end
+    end
+    assert_routing "/foo/bar", controller: "foo", action: "bar"
   end
 
   def test_to_is_a_symbol
@@ -4066,7 +4098,7 @@ class TestNamespaceWithControllerOption < ActionDispatch::IntegrationTest
     assert_match(/:to must respond to/, ex.message)
   end
 
-  def test_missing_action_on_hash
+  def test_missing_action_with_to
     ex = assert_raises(ArgumentError) {
       draw do
         get "/foo/bar", to: "foo#"
@@ -4180,7 +4212,7 @@ class TestHttpMethods < ActionDispatch::IntegrationTest
 
     routes.draw do
       (RFC2616 + RFC2518 + RFC3253 + RFC3648 + RFC3744 + RFC5323 + RFC4791 + RFC5789).each do |method|
-        match "/" => s.simple_app(method), :via => method.underscore.to_sym
+        match "/", to: s.simple_app(method), via: method.underscore.to_sym
       end
     end
   end
@@ -4196,15 +4228,15 @@ end
 class TestUriPathEscaping < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
-      get "/:segment" => lambda { |env|
+      get "/:segment", to: lambda { |env|
         path_params = env["action_dispatch.request.path_parameters"]
         [200, { "Content-Type" => "text/plain" }, [path_params[:segment]]]
-      }, :as => :segment
+      }, as: :segment
 
-      get "/*splat" => lambda { |env|
+      get "/*splat", to: lambda { |env|
         path_params = env["action_dispatch.request.path_parameters"]
         [200, { "Content-Type" => "text/plain" }, [path_params[:splat]]]
-      }, :as => :splat
+      }, as: :splat
     end
   end
 
@@ -4234,9 +4266,9 @@ end
 class TestUnicodePaths < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
-      get "/ほげ" => lambda { |env|
+      get "/ほげ", to: lambda { |env|
         [200, { "Content-Type" => "text/plain" }, []]
-      }, :as => :unicode_path
+      }, as: :unicode_path
     end
   end
 
@@ -4255,10 +4287,10 @@ class TestMultipleNestedController < ActionDispatch::IntegrationTest
     app.draw do
       namespace :foo do
         namespace :bar do
-          get "baz" => "baz#index"
+          get "baz", to: "baz#index"
         end
       end
-      get "pooh" => "pooh#index"
+      get "pooh", to: "pooh#index"
     end
   end
 
@@ -4288,8 +4320,8 @@ class TestTildeAndMinusPaths < ActionDispatch::IntegrationTest
     app.draw do
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
 
-      get "/~user" => ok
-      get "/young-and-fine" => ok
+      get "/~user", to: ok
+      get "/young-and-fine", to: ok
     end
   end
 
@@ -4313,11 +4345,11 @@ class TestRedirectInterpolation < ActionDispatch::IntegrationTest
     app.draw do
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
 
-      get "/foo/:id" => redirect("/foo/bar/%{id}")
-      get "/bar/:id" => redirect(path: "/foo/bar/%{id}")
-      get "/baz/:id" => redirect("/baz?id=%{id}&foo=?&bar=1#id-%{id}")
-      get "/foo/bar/:id" => ok
-      get "/baz" => ok
+      get "/foo/:id", to: redirect("/foo/bar/%{id}")
+      get "/bar/:id", to: redirect(path: "/foo/bar/%{id}")
+      get "/baz/:id", to: redirect("/baz?id=%{id}&foo=?&bar=1#id-%{id}")
+      get "/foo/bar/:id", to: ok
+      get "/baz", to: ok
     end
   end
 
@@ -4355,8 +4387,8 @@ class TestConstraintsAccessingParameters < ActionDispatch::IntegrationTest
     app.draw do
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
 
-      get "/:foo" => ok, :constraints => lambda { |r| r.params[:foo] == "foo" }
-      get "/:bar" => ok
+      get "/:foo", to: ok, constraints: lambda { |r| r.params[:foo] == "foo" }
+      get "/:bar", to: ok
     end
   end
 
@@ -4375,8 +4407,8 @@ class TestGlobRoutingMapper < ActionDispatch::IntegrationTest
     app.draw do
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
 
-      get "/*id" => redirect("/not_cars"), :constraints => { id: /dummy/ }
-      get "/cars" => ok
+      get "/*id", to: redirect("/not_cars"), constraints: { id: /dummy/ }
+      get "/cars", to: ok
     end
   end
 
@@ -4404,16 +4436,16 @@ class TestOptimizedNamedRoutes < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
-      get "/foo" => ok, as: :foo
+      get "/foo", to: ok, as: :foo
 
       ActionDispatch.deprecator.silence do
-        get "/post(/:action(/:id))" => ok, as: :posts
+        get "/post(/:action(/:id))", to: ok, as: :posts
       end
 
-      get "/:foo/:foo_type/bars/:id" => ok, as: :bar
-      get "/projects/:id.:format" => ok, as: :project
-      get "/pages/:id" => ok, as: :page
-      get "/wiki/*page" => ok, as: :wiki
+      get "/:foo/:foo_type/bars/:id", to: ok, as: :bar
+      get "/projects/:id.:format", to: ok, as: :project
+      get "/pages/:id", to: ok, as: :page
+      get "/wiki/*page", to: ok, as: :wiki
     end
   end
 
@@ -4485,8 +4517,8 @@ class TestNamedRouteUrlHelpers < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
       scope module: "test_named_route_url_helpers" do
-        get "/categories/:id" => "categories#show", :as => :category
-        get "/products/:id" => "products#show", :as => :product
+        get "/categories/:id", to: "categories#show", as: :category
+        get "/products/:id", to: "products#show", as: :product
       end
     end
   end
@@ -4511,18 +4543,18 @@ class TestUrlConstraints < ActionDispatch::IntegrationTest
       ok = lambda { |env| [200, { "Content-Type" => "text/plain" }, []] }
 
       constraints subdomain: "admin" do
-        get "/" => ok, :as => :admin_root
+        get "/", to: ok, as: :admin_root
       end
 
       scope constraints: { protocol: "https://" } do
-        get "/" => ok, :as => :secure_root
+        get "/", to: ok, as: :secure_root
       end
 
-      get "/" => ok, :as => :alternate_root, :constraints => { port: 8080 }
+      get "/", to: ok, as: :alternate_root, constraints: { port: 8080 }
 
-      get "/search" => ok, :constraints => { subdomain: false }
+      get "/search", to: ok, constraints: { subdomain: false }
 
-      get "/logs" => ok, :constraints => { subdomain: true }
+      get "/logs", to: ok, constraints: { subdomain: true }
     end
   end
 
@@ -4876,7 +4908,7 @@ end
 class TestUrlGenerationErrors < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
-      get "/products/:id" => "products#show", :as => :product
+      get "/products/:id", to: "products#show", as: :product
     end
   end
 
@@ -5152,7 +5184,7 @@ end
 class TestInternalRoutingParams < ActionDispatch::IntegrationTest
   Routes = ActionDispatch::Routing::RouteSet.new.tap do |app|
     app.draw do
-      get "/test_internal/:internal" => "internal#internal"
+      get "/test_internal/:internal", to: "internal#internal"
     end
   end
 

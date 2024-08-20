@@ -46,7 +46,7 @@ module ActiveSupport
 end
 
 [Enumerable, Object, Array, FalseClass, Float, Hash, Integer, NilClass, String, TrueClass].reverse_each do |klass|
-  klass.prepend(ActiveSupport::ToJsonWithActiveSupportEncoder)
+  klass.include(ActiveSupport::ToJsonWithActiveSupportEncoder)
 end
 
 class Module
@@ -105,7 +105,7 @@ end
 
 class Symbol
   def as_json(options = nil) # :nodoc:
-    to_s
+    name
   end
 end
 

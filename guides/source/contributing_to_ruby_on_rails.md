@@ -138,7 +138,16 @@ learn about Ruby on Rails, and the API, which serves as a reference.
 You can help improve the Rails guides or the API reference by making them more coherent, consistent, or readable, adding missing information, correcting factual errors, fixing typos, or bringing them up to date with the latest edge Rails.
 
 To do so, make changes to Rails guides source files (located [here](https://github.com/rails/rails/tree/main/guides/source) on GitHub) or RDoc comments in source code. Then open a pull request to apply your changes to the main branch.
+
 Use `[ci skip]` in your pull request title to avoid running the CI build for documentation changes.
+
+Once you open a PR, a preview of the documentation will be deployed for easy review and collaboration. At the bottom of the Pull Request page, you should see a list of status checks, look for the `buildkite/docs-preview` and click "details".
+
+![GitHub rails/rails Pull Request status checks](images/docs_preview/status_checks.png)
+
+This will bring you to the Buildkite build page, if the job was successful there will be an annotation with links to the generated API and Guides above the job list.
+
+![Buildkite rails/docs-preview annotation API & Guides links](images/docs_preview/annotation.png)
 
 When working with documentation, please take into account the [API Documentation Guidelines](api_documentation_guidelines.html) and the [Ruby on Rails Guides Guidelines](ruby_on_rails_guides_guidelines.html).
 
@@ -157,10 +166,9 @@ Note that translations are not submitted to the Rails repository; your work live
 To generate the guides in HTML format, you will need to install the guides dependencies, `cd` into the *guides* directory, and then run (e.g., for it-IT):
 
 ```bash
-# only install gems necessary for the guides. To undo run: bundle config --delete without
-$ bundle install --without job cable storage test db
+$ BUNDLE_ONLY=default:doc bundle install
 $ cd guides/
-$ bundle exec rake guides:generate:html GUIDES_LANGUAGE=it-IT
+$ BUNDLE_ONLY=default:doc bundle exec rake guides:generate:html GUIDES_LANGUAGE=it-IT
 ```
 
 This will generate the guides in an *output* directory.
@@ -287,16 +295,6 @@ Inspecting 1 file
 1 file inspected, no offenses detected
 ```
 
-#### Spell Checking
-
-We run [codespell](https://github.com/codespell-project/codespell) with GitHub Actions to check spelling and
-[codespell](https://pypi.org/project/codespell/) runs against a [small custom dictionary](https://github.com/rails/rails/blob/main/codespell.txt).
-`codespell` is written in [Python](https://www.python.org/) and you can run it with:
-
-```bash
-$ codespell --ignore-words=codespell.txt
-```
-
 ### Benchmark Your Code
 
 For changes that might have an impact on performance, please benchmark your
@@ -384,6 +382,15 @@ Figuring out the name is not always easy, but if you know the line number your t
 ```bash
 $ cd railties
 $ bin/test test/application/asset_debugging_test.rb:69
+```
+
+#### For a Specific Line Range
+
+Similar tests are often defined in nearby locations. You can run tests in a specific line range.
+
+```bash
+$ cd railties
+$ bin/test test/application/asset_debugging_test.rb:69-100
 ```
 
 #### Running Tests with a Specific Seed
@@ -600,7 +607,7 @@ To ease the upgrade it's required to add the new default to the
 value:
 
 ```ruby
-# new_framework_defaults_7_2.rb.tt
+# new_framework_defaults_8_0.rb.tt
 
 # Rails.application.config.active_job.existing_behavior = false
 ```
@@ -764,7 +771,9 @@ is the open source life.
 If it's been over a week, and you haven't heard anything, you might want to try
 and nudge things along. You can use the *contributions* channel in the [Ruby on Rails Discord server](https://discord.gg/d8N68BCw49),
 or the [rubyonrails-core discussion board](https://discuss.rubyonrails.org/c/rubyonrails-core) for this.
-You can also leave another comment on the pull request.
+You can also leave another comment on the pull request. It's best to avoid pinging
+individual maintainers directly as we have limited bandwidth and may not
+be able to look at your PR.
 
 While you're waiting for feedback on your pull request, open up a few other
 pull requests and give someone else some! They'll appreciate it in

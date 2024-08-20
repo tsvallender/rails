@@ -152,7 +152,7 @@ module ActiveSupport
 
         def _extract_callstack(callstack)
           ActiveSupport.deprecator.warn(<<~MESSAGE)
-            Passing the result of `caller` to ActiveSupport::Deprecation#warn is deprecated and will be removed in Rails 7.3.
+            Passing the result of `caller` to ActiveSupport::Deprecation#warn is deprecated and will be removed in Rails 8.0.
 
             Please pass the result of `caller_locations` instead.
           MESSAGE
@@ -172,7 +172,7 @@ module ActiveSupport
         LIB_DIR = RbConfig::CONFIG["libdir"]
 
         def ignored_callstack?(path)
-          path.start_with?(RAILS_GEM_ROOT, LIB_DIR)
+          path.start_with?(RAILS_GEM_ROOT, LIB_DIR) || path.include?("<internal:")
         end
     end
   end

@@ -62,9 +62,12 @@ module GeneratorsTestHelper
 
   def copy_routes
     routes = File.expand_path("../../lib/rails/generators/rails/app/templates/config/routes.rb.tt", __dir__)
+    routes = evaluate_template(routes, {
+      options: ActiveSupport::OrderedOptions.new
+    })
     destination = File.join(destination_root, "config")
     FileUtils.mkdir_p(destination)
-    FileUtils.cp routes, File.join(destination, "routes.rb")
+    File.write File.join(destination, "routes.rb"), routes
   end
 
   def copy_gemfile(*gemfile_entries)
@@ -82,6 +85,25 @@ module GeneratorsTestHelper
     File.write File.join(destination, "Dockerfile"), dockerfile
   end
 
+  def copy_devcontainer_files
+    destination = File.join(destination_root, ".devcontainer")
+    mkdir_p(destination)
+
+    devcontainer_json = File.read(File.expand_path("../fixtures/.devcontainer/devcontainer.json", __dir__))
+    File.write File.join(destination, "devcontainer.json"), devcontainer_json
+
+    compose_yaml = File.read(File.expand_path("../fixtures/.devcontainer/compose.yaml", __dir__))
+    File.write File.join(destination, "compose.yaml"), compose_yaml
+  end
+
+  def copy_minimal_devcontainer_compose_file
+    destination = File.join(destination_root, ".devcontainer")
+    mkdir_p(destination)
+
+    compose_yaml = File.read(File.expand_path("../fixtures/.devcontainer/compose-minimal.yaml", __dir__))
+    File.write File.join(destination, "compose.yaml"), compose_yaml
+  end
+
   def evaluate_template(file, locals = {})
     erb = ERB.new(File.read(file), trim_mode: "-", eoutvar: "@output_buffer")
     context = Class.new do
@@ -95,6 +117,28 @@ module GeneratorsTestHelper
   def evaluate_template_docker(file)
     erb = ERB.new(File.read(file), trim_mode: "-", eoutvar: "@output_buffer")
     erb.result()
+  end
+
+  def assert_compose_file
+    assert_file ".devcontainer/compose.yaml" do |content|
+      yield YAML.load(content)
+    end
+  end
+
+  def assert_devcontainer_json_file
+    assert_file ".devcontainer/devcontainer.json" do |content|
+      yield JSON.load(content)
+    end
+  end
+
+  def run_app_update(app_root = destination_root, flags: "--force")
+    Dir.chdir(app_root) do
+      gemfile_contents = File.read("Gemfile")
+      gemfile_contents.sub!(/^(gem "rails").*/, "\\1, path: #{File.expand_path("../../..", __dir__).inspect}")
+      File.write("Gemfile", gemfile_contents)
+
+      quietly { system({ "BUNDLE_GEMFILE" => "Gemfile" }, "bin/rails app:update #{flags}", exception: true) }
+    end
   end
 
   private

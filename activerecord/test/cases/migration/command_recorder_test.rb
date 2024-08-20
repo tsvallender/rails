@@ -6,7 +6,7 @@ module ActiveRecord
   class Migration
     class CommandRecorderTest < ActiveRecord::TestCase
       def setup
-        connection = ActiveRecord::Base.connection
+        connection = ActiveRecord::Base.lease_connection
         @recorder  = CommandRecorder.new(connection)
       end
 
@@ -113,7 +113,7 @@ module ActiveRecord
         end
       end
 
-      if ActiveRecord::Base.connection.supports_bulk_alter?
+      if ActiveRecord::Base.lease_connection.supports_bulk_alter?
         def test_bulk_invert_change_table
           block = Proc.new do |t|
             t.string :name
@@ -225,7 +225,7 @@ module ActiveRecord
         assert_equal [:change_column_default, [:table, :column, from: false, to: true]], change
       end
 
-      if ActiveRecord::Base.connection.supports_comments?
+      if ActiveRecord::Base.lease_connection.supports_comments?
         def test_invert_change_column_comment
           assert_raises(ActiveRecord::IrreversibleMigration) do
             @recorder.inverse_of :change_column_comment, [:table, :column, "comment"]
@@ -374,6 +374,16 @@ module ActiveRecord
       def test_invert_disable_extension
         enable = @recorder.inverse_of :disable_extension, ["uuid-ossp"]
         assert_equal [:enable_extension, ["uuid-ossp"], nil], enable
+      end
+
+      def test_invert_create_schema
+        disable = @recorder.inverse_of :create_schema, ["myschema"]
+        assert_equal [:drop_schema, ["myschema"], nil], disable
+      end
+
+      def test_invert_drop_schema
+        enable = @recorder.inverse_of :drop_schema, ["myschema"]
+        assert_equal [:create_schema, ["myschema"], nil], enable
       end
 
       def test_invert_add_foreign_key

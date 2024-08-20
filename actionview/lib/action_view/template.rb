@@ -272,7 +272,8 @@ module ActionView
           view._run(method_name, self, locals, buffer, add_to_stack: add_to_stack, has_strict_locals: strict_locals?, &block)
           nil
         else
-          view._run(method_name, self, locals, OutputBuffer.new, add_to_stack: add_to_stack, has_strict_locals: strict_locals?, &block)&.to_s
+          result = view._run(method_name, self, locals, OutputBuffer.new, add_to_stack: add_to_stack, has_strict_locals: strict_locals?, &block)
+          result.is_a?(OutputBuffer) ? result.to_s : result
         end
       end
     rescue => e
@@ -437,9 +438,13 @@ module ActionView
 
         method_arguments =
           if set_strict_locals
-            "output_buffer, #{set_strict_locals}"
+            if set_strict_locals.include?("&")
+              "local_assigns, output_buffer, #{set_strict_locals}"
+            else
+              "local_assigns, output_buffer, #{set_strict_locals}, &_"
+            end
           else
-            "local_assigns, output_buffer"
+            "local_assigns, output_buffer, &_"
           end
 
         # Make sure that the resulting String to be eval'd is in the
@@ -495,14 +500,17 @@ module ActionView
 
         return unless strict_locals?
 
-        parameters = mod.instance_method(method_name).parameters - [[:req, :output_buffer]]
+        parameters = mod.instance_method(method_name).parameters
+        parameters -= [[:req, :local_assigns], [:req, :output_buffer]]
+
         # Check compiled method parameters to ensure that only kwargs
         # were provided as strict locals, preventing `locals: (foo, *foo)` etc
         # and allowing `locals: (foo:)`.
-
         non_kwarg_parameters = parameters.select do |parameter|
           ![:keyreq, :key, :keyrest, :nokey].include?(parameter[0])
         end
+
+        non_kwarg_parameters.pop if non_kwarg_parameters.last == %i(block _)
 
         unless non_kwarg_parameters.empty?
           mod.undef_method(method_name)

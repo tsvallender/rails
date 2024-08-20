@@ -197,12 +197,6 @@ module ActiveRecord
 
       # HELPER METHODS ===========================================
 
-      # The two drivers have slightly different ways of yielding hashes of results, so
-      # this method must be implemented to provide a uniform interface.
-      def each_hash(result) # :nodoc:
-        raise NotImplementedError
-      end
-
       # Must return the MySQL error number from the exception, if the exception has an
       # error number.
       def error_number(exception) # :nodoc:
@@ -218,7 +212,7 @@ module ActiveRecord
           update("SET FOREIGN_KEY_CHECKS = 0")
           yield
         ensure
-          update("SET FOREIGN_KEY_CHECKS = #{old}")
+          update("SET FOREIGN_KEY_CHECKS = #{old}") if active?
         end
       end
 
@@ -226,24 +220,19 @@ module ActiveRecord
       # DATABASE STATEMENTS ======================================
       #++
 
-      # Mysql2Adapter doesn't have to free a result after using it, but we use this method
-      # to write stuff in an abstract way without concerning ourselves about whether it
-      # needs to be explicitly freed or not.
-      def execute_and_free(sql, name = nil, async: false) # :nodoc:
-        sql = transform_query(sql)
-        check_if_write_query(sql)
-
-        mark_transaction_written_if_write(sql)
-        yield raw_execute(sql, name, async: async)
-      end
-
       def begin_db_transaction # :nodoc:
         internal_execute("BEGIN", "TRANSACTION", allow_retry: true, materialize_transactions: false)
       end
 
       def begin_isolated_db_transaction(isolation) # :nodoc:
-        internal_execute("SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}", "TRANSACTION", allow_retry: true, materialize_transactions: false)
-        begin_db_transaction
+        # From MySQL manual: The [SET TRANSACTION] statement applies only to the next single transaction performed within the session.
+        # So we don't need to implement #reset_isolation_level
+        execute_batch(
+          ["SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}", "BEGIN"],
+          "TRANSACTION",
+          allow_retry: true,
+          materialize_transactions: false,
+        )
       end
 
       def commit_db_transaction # :nodoc:
@@ -340,7 +329,7 @@ module ActiveRecord
         schema_cache.clear_data_source_cache!(table_name.to_s)
         schema_cache.clear_data_source_cache!(new_name.to_s)
         execute "RENAME TABLE #{quote_table_name(table_name)} TO #{quote_table_name(new_name)}"
-        rename_table_indexes(table_name, new_name)
+        rename_table_indexes(table_name, new_name, **options)
       end
 
       # Drops a table from the database.
@@ -580,7 +569,7 @@ module ActiveRecord
 
       # SHOW VARIABLES LIKE 'name'
       def show_variable(name)
-        query_value("SELECT @@#{name}", "SCHEMA")
+        query_value("SELECT @@#{name}", "SCHEMA", materialize_transactions: false, allow_retry: true)
       rescue ActiveRecord::StatementInvalid
         nil
       end
@@ -639,18 +628,38 @@ module ActiveRecord
       end
 
       def build_insert_sql(insert) # :nodoc:
-        sql = +"INSERT #{insert.into} #{insert.values_list}"
+        no_op_column = quote_column_name(insert.keys.first)
 
-        if insert.skip_duplicates?
-          no_op_column = quote_column_name(insert.keys.first)
-          sql << " ON DUPLICATE KEY UPDATE #{no_op_column}=#{no_op_column}"
-        elsif insert.update_duplicates?
-          sql << " ON DUPLICATE KEY UPDATE "
-          if insert.raw_update_sql?
-            sql << insert.raw_update_sql
-          else
-            sql << insert.touch_model_timestamps_unless { |column| "#{column}<=>VALUES(#{column})" }
-            sql << insert.updatable_columns.map { |column| "#{column}=VALUES(#{column})" }.join(",")
+        # MySQL 8.0.19 replaces `VALUES(<expression>)` clauses with row and column alias names, see https://dev.mysql.com/worklog/task/?id=6312 .
+        # then MySQL 8.0.20 deprecates the `VALUES(<expression>)` see https://dev.mysql.com/worklog/task/?id=13325 .
+        if supports_insert_raw_alias_syntax?
+          values_alias = quote_table_name("#{insert.model.table_name.parameterize}_values")
+          sql = +"INSERT #{insert.into} #{insert.values_list} AS #{values_alias}"
+
+          if insert.skip_duplicates?
+            sql << " ON DUPLICATE KEY UPDATE #{no_op_column}=#{values_alias}.#{no_op_column}"
+          elsif insert.update_duplicates?
+            if insert.raw_update_sql?
+              sql = +"INSERT #{insert.into} #{insert.values_list} ON DUPLICATE KEY UPDATE #{insert.raw_update_sql}"
+            else
+              sql << " ON DUPLICATE KEY UPDATE "
+              sql << insert.touch_model_timestamps_unless { |column| "#{insert.model.quoted_table_name}.#{column}<=>#{values_alias}.#{column}" }
+              sql << insert.updatable_columns.map { |column| "#{column}=#{values_alias}.#{column}" }.join(",")
+            end
+          end
+        else
+          sql = +"INSERT #{insert.into} #{insert.values_list}"
+
+          if insert.skip_duplicates?
+            sql << " ON DUPLICATE KEY UPDATE #{no_op_column}=#{no_op_column}"
+          elsif insert.update_duplicates?
+            sql << " ON DUPLICATE KEY UPDATE "
+            if insert.raw_update_sql?
+              sql << insert.raw_update_sql
+            else
+              sql << insert.touch_model_timestamps_unless { |column| "#{column}<=>VALUES(#{column})" }
+              sql << insert.updatable_columns.map { |column| "#{column}=VALUES(#{column})" }.join(",")
+            end
           end
         end
 
@@ -660,7 +669,7 @@ module ActiveRecord
 
       def check_version # :nodoc:
         if database_version < "5.5.8"
-          raise "Your version of MySQL (#{database_version}) is too old. Active Record supports MySQL >= 5.5.8."
+          raise DatabaseVersionError, "Your version of MySQL (#{database_version}) is too old. Active Record supports MySQL >= 5.5.8."
         end
       end
 
@@ -767,11 +776,6 @@ module ActiveRecord
           warning.level == "Note" || super
         end
 
-        # Make sure we carry over any changes to ActiveRecord.default_timezone that have been
-        # made since we established the connection
-        def sync_timezone_changes(raw_connection)
-        end
-
         # See https://dev.mysql.com/doc/mysql-errors/en/server-error-reference.html
         ER_DB_CREATE_EXISTS     = 1007
         ER_FILSORT_ABORT        = 1028
@@ -874,6 +878,10 @@ module ActiveRecord
           "DROP INDEX #{quote_column_name(index_name)}"
         end
 
+        def supports_insert_raw_alias_syntax?
+          !mariadb? && database_version >= "8.0.19"
+        end
+
         def supports_rename_index?
           if mariadb?
             database_version >= "10.5.2"
@@ -937,13 +945,11 @@ module ActiveRecord
           end.join(", ")
 
           # ...and send them all in one query
-          internal_execute("SET #{encoding} #{sql_mode_assignment} #{variable_assignments}")
+          raw_execute("SET #{encoding} #{sql_mode_assignment} #{variable_assignments}", "SCHEMA")
         end
 
         def column_definitions(table_name) # :nodoc:
-          execute_and_free("SHOW FULL FIELDS FROM #{quote_table_name(table_name)}", "SCHEMA") do |result|
-            each_hash(result)
-          end
+          internal_exec_query("SHOW FULL FIELDS FROM #{quote_table_name(table_name)}", "SCHEMA")
         end
 
         def create_table_info(table_name) # :nodoc:
@@ -999,7 +1005,11 @@ module ActiveRecord
         end
 
         def version_string(full_version_string)
-          full_version_string.match(/^(?:5\.5\.5-)?(\d+\.\d+\.\d+)/)[1]
+          if full_version_string && matches = full_version_string.match(/^(?:5\.5\.5-)?(\d+\.\d+\.\d+)/)
+            matches[1]
+          else
+            raise DatabaseVersionError, "Unable to parse MySQL version from #{full_version_string.inspect}"
+          end
         end
     end
   end

@@ -5,8 +5,6 @@ require "bundler/inline"
 gemfile(true) do
   source "https://rubygems.org"
 
-  git_source(:github) { |repo| "https://github.com/#{repo}.git" }
-
   gem "rails"
   # If you want to test against edge Rails replace the previous line with this:
   # gem "rails", github: "rails/rails", branch: "main"
@@ -23,7 +21,7 @@ class TestApp < Rails::Application
   Rails.logger  = config.logger
 
   routes.draw do
-    get "/" => "test#index"
+    get "/", to: "test#index"
   end
 end
 

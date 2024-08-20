@@ -11,7 +11,7 @@ require "active_record/connection_adapters/sqlite3/schema_definitions"
 require "active_record/connection_adapters/sqlite3/schema_dumper"
 require "active_record/connection_adapters/sqlite3/schema_statements"
 
-gem "sqlite3", "~> 1.4"
+gem "sqlite3", ">= 2.0"
 require "sqlite3"
 
 module ActiveRecord
@@ -112,20 +112,21 @@ module ActiveRecord
           dirname = File.dirname(@config[:database])
           unless File.directory?(dirname)
             begin
-              Dir.mkdir(dirname)
-            rescue Errno::ENOENT => error
-              if error.message.include?("No such file or directory")
-                raise ActiveRecord::NoDatabaseError.new(connection_pool: @pool)
-              else
-                raise
-              end
+              FileUtils.mkdir_p(dirname)
+            rescue SystemCallError
+              raise ActiveRecord::NoDatabaseError.new(connection_pool: @pool)
             end
           end
         end
 
+        @last_affected_rows = nil
+        @previous_read_uncommitted = nil
         @config[:strict] = ConnectionAdapters::SQLite3Adapter.strict_strings_by_default unless @config.key?(:strict)
-        @connection_parameters = @config.merge(database: @config[:database].to_s, results_as_hash: true)
-        @use_insert_returning = @config.key?(:insert_returning) ? self.class.type_cast_config_to_boolean(@config[:insert_returning]) : true
+        @connection_parameters = @config.merge(
+          database: @config[:database].to_s,
+          results_as_hash: true,
+          default_transaction_mode: :immediate,
+        )
       end
 
       def database_exists?
@@ -263,7 +264,7 @@ module ActiveRecord
 
         unless result.blank?
           tables = result.map { |row| row["table"] }
-          raise ActiveRecord::StatementInvalid.new("Foreign key violations found: #{tables.join(", ")}", sql: sql)
+          raise ActiveRecord::StatementInvalid.new("Foreign key violations found: #{tables.join(", ")}", sql: sql, connection_pool: @pool)
         end
       end
 
@@ -291,7 +292,7 @@ module ActiveRecord
         schema_cache.clear_data_source_cache!(table_name.to_s)
         schema_cache.clear_data_source_cache!(new_name.to_s)
         exec_query "ALTER TABLE #{quote_table_name(table_name)} RENAME TO #{quote_table_name(new_name)}"
-        rename_table_indexes(table_name, new_name)
+        rename_table_indexes(table_name, new_name, **options)
       end
 
       def add_column(table_name, column_name, type, **options) # :nodoc:
@@ -432,10 +433,6 @@ module ActiveRecord
         @config.fetch(:flags, 0).anybits?(::SQLite3::Constants::Open::SHAREDCACHE)
       end
 
-      def use_insert_returning?
-        @use_insert_returning
-      end
-
       def get_database_version # :nodoc:
         SQLite3Adapter::Version.new(query_value("SELECT sqlite_version(*)", "SCHEMA"))
       end
@@ -476,12 +473,8 @@ module ActiveRecord
         end
 
         def table_structure(table_name)
-          structure = if supports_virtual_columns?
-            internal_exec_query("PRAGMA table_xinfo(#{quote_table_name(table_name)})", "SCHEMA")
-          else
-            internal_exec_query("PRAGMA table_info(#{quote_table_name(table_name)})", "SCHEMA")
-          end
-          raise(ActiveRecord::StatementInvalid, "Could not find table '#{table_name}'") if structure.empty?
+          structure = table_info(table_name)
+          raise ActiveRecord::StatementInvalid.new("Could not find table '#{table_name}'", connection_pool: @pool) if structure.empty?
           table_structure_with_collation(table_name, structure)
         end
         alias column_definitions table_structure
@@ -578,12 +571,6 @@ module ActiveRecord
                  options[:rename][column.name.to_sym] ||
                  column.name) : column.name
 
-              if column.has_default?
-                type = lookup_cast_type_from_column(column)
-                default = type.deserialize(column.default)
-                default = -> { column.default_function } if default.nil?
-              end
-
               column_options = {
                 limit: column.limit,
                 precision: column.precision,
@@ -593,19 +580,31 @@ module ActiveRecord
                 primary_key: column_name == from_primary_key
               }
 
-              unless column.auto_increment?
-                column_options[:default] = default
+              if column.virtual?
+                column_options[:as] = column.default_function
+                column_options[:stored] = column.virtual_stored?
+                column_options[:type] = column.type
+              elsif column.has_default?
+                type = lookup_cast_type_from_column(column)
+                default = type.deserialize(column.default)
+                default = -> { column.default_function } if default.nil?
+
+                unless column.auto_increment?
+                  column_options[:default] = default
+                end
               end
 
-              column_type = column.bigint? ? :bigint : column.type
+              column_type = column.virtual? ? :virtual : (column.bigint? ? :bigint : column.type)
               @definition.column(column_name, column_type, **column_options)
             end
 
             yield @definition if block_given?
           end
           copy_table_indexes(from, to, options[:rename] || {})
+
+          columns_to_copy = @definition.columns.reject { |col| col.options.key?(:as) }.map(&:name)
           copy_table_contents(from, to,
-            @definition.columns.map(&:name),
+            columns_to_copy,
             options[:rename] || {})
         end
 
@@ -663,6 +662,8 @@ module ActiveRecord
             InvalidForeignKey.new(message, sql: sql, binds: binds, connection_pool: @pool)
           elsif exception.message.match?(/called on a closed database/i)
             ConnectionNotEstablished.new(exception, connection_pool: @pool)
+          elsif exception.is_a?(::SQLite3::BusyException)
+            StatementTimeout.new(message, sql: sql, binds: binds, connection_pool: @pool)
           else
             super
           end
@@ -677,7 +678,7 @@ module ActiveRecord
           auto_increments = {}
           generated_columns = {}
 
-          column_strings = table_structure_sql(table_name)
+          column_strings = table_structure_sql(table_name, basic_structure.map { |column| column["name"] })
 
           if column_strings.any?
             column_strings.each do |column_string|
@@ -689,6 +690,8 @@ module ActiveRecord
             end
 
             basic_structure.map do |column|
+              column = column.to_h
+
               column_name = column["name"]
 
               if collation_hash.has_key? column_name
@@ -710,7 +713,15 @@ module ActiveRecord
           end
         end
 
-        def table_structure_sql(table_name)
+        UNQUOTED_OPEN_PARENS_REGEX = /\((?![^'"]*['"][^'"]*$)/
+        FINAL_CLOSE_PARENS_REGEX = /\);*\z/
+
+        def table_structure_sql(table_name, column_names = nil)
+          unless column_names
+            column_info = table_info(table_name)
+            column_names = column_info.map { |column| column["name"] }
+          end
+
           sql = <<~SQL
             SELECT sql FROM
               (SELECT * FROM sqlite_master UNION ALL
@@ -720,16 +731,30 @@ module ActiveRecord
 
           # Result will have following sample string
           # CREATE TABLE "users" ("id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-          #                       "password_digest" varchar COLLATE "NOCASE");
+          #                       "password_digest" varchar COLLATE "NOCASE",
+          #                       "o_id" integer,
+          #                       CONSTRAINT "fk_rails_78146ddd2e" FOREIGN KEY ("o_id") REFERENCES "os" ("id"));
           result = query_value(sql, "SCHEMA")
 
           return [] unless result
 
           # Splitting with left parentheses and discarding the first part will return all
           # columns separated with comma(,).
-          columns_string = result.split("(", 2).last
+          result.partition(UNQUOTED_OPEN_PARENS_REGEX)
+                .last
+                .sub(FINAL_CLOSE_PARENS_REGEX, "")
+                # column definitions can have a comma in them, so split on commas followed
+                # by a space and a column name in quotes or followed by the keyword CONSTRAINT
+                .split(/,(?=\s(?:CONSTRAINT|"(?:#{Regexp.union(column_names).source})"))/i)
+                .map(&:strip)
+        end
 
-          columns_string.split(",").map(&:strip)
+        def table_info(table_name)
+          if supports_virtual_columns?
+            internal_exec_query("PRAGMA table_xinfo(#{quote_table_name(table_name)})", "SCHEMA")
+          else
+            internal_exec_query("PRAGMA table_info(#{quote_table_name(table_name)})", "SCHEMA")
+          end
         end
 
         def arel_visitor
@@ -758,12 +783,15 @@ module ActiveRecord
           if @config[:timeout] && @config[:retries]
             raise ArgumentError, "Cannot specify both timeout and retries arguments"
           elsif @config[:timeout]
-            @raw_connection.busy_timeout(self.class.type_cast_config_to_integer(@config[:timeout]))
+            timeout = self.class.type_cast_config_to_integer(@config[:timeout])
+            raise TypeError, "timeout must be integer, not #{timeout}" unless timeout.is_a?(Integer)
+            @raw_connection.busy_handler_timeout = timeout
           elsif @config[:retries]
+            ActiveRecord.deprecator.warn(<<~MSG)
+              The retries option is deprecated and will be removed in Rails 8.1. Use timeout instead.
+            MSG
             retries = self.class.type_cast_config_to_integer(@config[:retries])
-            raw_connection.busy_handler do |count|
-              count <= retries
-            end
+            raw_connection.busy_handler { |count| count <= retries }
           end
 
           super

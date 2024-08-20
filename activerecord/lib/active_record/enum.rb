@@ -223,6 +223,13 @@ module ActiveRecord
       options.transform_keys! { |key| :"#{key[1..-1]}" }
 
       definitions.each { |name, values| _enum(name, values, **options) }
+
+      ActiveRecord.deprecator.warn(<<~MSG)
+        Defining enums with keyword arguments is deprecated and will be removed
+        in Rails 8.0. Positional arguments should be used instead:
+
+        #{definitions.map { |name, values| "enum :#{name}, #{values}" }.join("\n")}
+      MSG
     end
 
     private
@@ -233,6 +240,7 @@ module ActiveRecord
 
       def _enum(name, values, prefix: nil, suffix: nil, scopes: true, instance_methods: true, validate: false, **options)
         assert_valid_enum_definition_values(values)
+        assert_valid_enum_options(options)
         # statuses = { }
         enum_values = ActiveSupport::HashWithIndifferentAccess.new
         name = name.to_s
@@ -249,7 +257,7 @@ module ActiveRecord
 
         decorate_attributes([name]) do |_name, subtype|
           if subtype == ActiveModel::Type.default_value
-            raise "Undeclared attribute type for enum '#{name}'. Enums must be" \
+            raise "Undeclared attribute type for enum '#{name}' in #{self.name}. Enums must be" \
               " backed by a database column or declared with an explicit type" \
               " via `attribute`."
           end
@@ -360,6 +368,13 @@ module ActiveRecord
           end
         else
           raise ArgumentError, "Enum values #{values} must be either a non-empty hash or an array."
+        end
+      end
+
+      def assert_valid_enum_options(options)
+        invalid_keys = options.keys & %i[_prefix _suffix _scopes _default _instance_methods]
+        unless invalid_keys.empty?
+          raise ArgumentError, "invalid option(s): #{invalid_keys.map(&:inspect).join(", ")}. Valid options are: :prefix, :suffix, :scopes, :default, :instance_methods, and :validate."
         end
       end
 

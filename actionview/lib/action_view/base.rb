@@ -153,8 +153,7 @@ module ActionView # :nodoc:
   #     end
   #   end
   #
-  # For more information on Builder please consult the {source
-  # code}[https://github.com/jimweirich/builder].
+  # For more information on Builder please consult the {source code}[https://github.com/rails/builder].
   class Base
     include Helpers, ::ERB::Util, Context
 
@@ -266,7 +265,7 @@ module ActionView # :nodoc:
 
       if has_strict_locals
         begin
-          public_send(method, buffer, **locals, &block)
+          public_send(method, locals, buffer, **locals, &block)
         rescue ArgumentError => argument_error
           raise(
             ArgumentError,

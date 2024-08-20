@@ -36,7 +36,9 @@ module ActionDispatch
       end
 
       def test_initialize
-        Mapper.new FakeSet.new
+        assert_nothing_raised do
+          Mapper.new FakeSet.new
+        end
       end
 
       def test_scope_raises_on_anchor
@@ -91,7 +93,7 @@ module ActionDispatch
         options = {}
         scope = Mapper::Scope.new({})
         ast = Journey::Parser.parse "/store/:name(*rest)"
-        m = Mapper::Mapping.build(scope, FakeSet.new, ast, "foo", "bar", nil, [:get], nil, {}, true, options)
+        m = Mapper::Mapping.build(scope, FakeSet.new, ast, "foo", "bar", nil, [:get], nil, {}, true, nil, options)
         assert_equal(/.+?/m, m.requirements[:rest])
       end
 
@@ -175,7 +177,7 @@ module ActionDispatch
         fakeset = FakeSet.new
         mapper = Mapper.new fakeset
         app = lambda { |env| [200, {}, [""]] }
-        mapper.mount app => "/path", anchor: true
+        mapper.mount app, at: "/path", anchor: true
         assert_equal "/path", fakeset.asts.first.to_s
         assert fakeset.routes.first.path.anchored
       end

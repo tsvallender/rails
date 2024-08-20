@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# :markup: markdown
+
 require "action_dispatch"
 require "action_dispatch/log_subscriber"
 require "active_support/messages/rotation_configuration"
@@ -27,6 +29,7 @@ module ActionDispatch
     config.action_dispatch.request_id_header = ActionDispatch::Constants::X_REQUEST_ID
     config.action_dispatch.log_rescued_responses = true
     config.action_dispatch.debug_exception_log_level = :fatal
+    config.action_dispatch.strict_freshness = false
 
     config.action_dispatch.default_headers = {
       "X-Frame-Options" => "SAMEORIGIN",
@@ -66,8 +69,8 @@ module ActionDispatch
       ActionDispatch::Cookies::CookieJar.always_write_cookie = config.action_dispatch.always_write_cookie
 
       ActionDispatch::Routing::Mapper.route_source_locations = Rails.env.development?
-      ActionDispatch::Routing::Mapper.backtrace_cleaner = Rails.backtrace_cleaner
 
+      ActionDispatch::Http::Cache::Request.strict_freshness = app.config.action_dispatch.strict_freshness
       ActionDispatch.test_app = app
     end
   end

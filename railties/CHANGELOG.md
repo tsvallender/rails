@@ -1,168 +1,120 @@
-*   Rails console now indicates application name and the current Rails environment:
+*   Enable query log tags by default on development env
 
-    ```txt
-    my-app(dev)> # for RAILS_ENV=development
-    my-app(test)> # for RAILS_ENV=test
-    my-app(prod)> # for RAILS_ENV=production
-    my-app(my_env)> # for RAILS_ENV=my_env
-    ```
+    This can be used to trace troublesome SQL statements back to the application
+    code that generated these statements. It is also useful when using multiple
+    databases because the query logs can identify which database is being used.
 
-    The application name is derived from the application's module name from `config/application.rb`.
-    For example, `MyApp` will displayed as `my-app` in the prompt.
+    *Matheus Richard*
 
-    Additionally, the environment name will be colorized when the environment is
-    `development` (blue), `test` (blue), or `production` (red), if your
-    terminal supports it.
+*   Defer route drawing to the first request, or when url_helpers are called
 
-    *Stan Lo*
+    Executes the first routes reload in middleware, or when a route set's
+    url_helpers receives a route call / asked if it responds to a route.
+    Previously, this was executed unconditionally on boot, which can
+    slow down boot time unnecessarily for larger apps with lots of routes.
 
-*   Ensure `autoload_paths`, `autoload_once_paths`, `eager_load_paths`, and
-    `load_paths` only have directories when initialized from engine defaults.
-    Previously, files under the `app` directory could end up there too.
+    Environments like production that have `config.eager_load = true` will
+    continue to eagerly load routes on boot.
 
-    *Takumasa Ochi*
+    *Gannon McGibbon*
 
-*   Prevent unnecessary application reloads in development.
-
-    Previously, some files outside autoload paths triggered unnecessary reloads.
-    With this fix, application reloads according to `Rails.autoloaders.main.dirs`,
-    thereby preventing unnecessary reloads.
-
-    *Takumasa Ochi*
-
-*   Use `oven-sh/setup-bun` in GitHub CI when generating an app with Bun.
-
-    *TangRufus*
-
-*   Disable `pidfile` generation in the `production` environment.
-
-    *Hans Schnedlitz*
-
-*   Set `config.action_view.annotate_rendered_view_with_filenames` to `true` in
-    the `development` environment.
-
-    *Adrian Marin*
-
-*   Support the `BACKTRACE` environment variable to turn off backtrace cleaning.
-
-    Useful for debugging framework code:
-
-    ```sh
-    BACKTRACE=1 bin/rails server
-    ```
-
-    *Alex Ghiculescu*
-
-*   Raise `ArgumentError` when reading `config.x.something` with arguments:
-
-    ```ruby
-    config.x.this_works.this_raises true # raises ArgumentError
-    ```
+*   Generate form helpers to use `textarea*` methods instead of `text_area*` methods
 
     *Sean Doyle*
 
-*   Add default PWA files for manifest and service-worker that are served from `app/views/pwa` and can be dynamically rendered through ERB. Mount these files explicitly at the root with default routes in the generated routes file.
+*   Add authentication generator to give a basic start to an authentication system using database-tracked sessions and password reset.
+
+    Generate with...
+
+    ```
+    bin/rails generate authentication
+    ```
+
+    Generated files:
+
+    ```
+    app/models/current.rb
+    app/models/user.rb
+    app/models/session.rb
+    app/controllers/sessions_controller.rb
+    app/controllers/passwords_controller.rb
+    app/mailers/passwords_mailer.rb
+    app/views/sessions/new.html.erb
+    app/views/passwords/new.html.erb
+    app/views/passwords/edit.html.erb
+    app/views/passwords_mailer/reset.html.erb
+    app/views/passwords_mailer/reset.text.erb
+    db/migrate/xxxxxxx_create_users.rb
+    db/migrate/xxxxxxx_create_sessions.rb
+    test/mailers/previews/passwords_mailer_preview.rb
+    ```
 
     *DHH*
 
-*   Updated system tests to now use headless Chrome by default for the new applications.
+
+*   Add not-null type modifier to migration attributes.
+
+    Generating with...
+
+    ```
+    bin/rails generate migration CreateUsers email_address:string!:uniq password_digest:string!
+    ```
+
+    Produces:
+
+    ```ruby
+    class CreateUsers < ActiveRecord::Migration[8.0]
+      def change
+        create_table :users do |t|
+          t.string :email_address, null: false
+          t.string :password_digest, null: false
+
+          t.timestamps
+        end
+        add_index :users, :email_address, unique: true
+      end
+    end
+    ```
 
     *DHH*
 
-*   Add GitHub CI files for Dependabot, Brakeman, RuboCop, and running tests by default. Can be skipped with `--skip-ci`.
+*   Add a `script` folder to applications, and a scripts generator.
+
+    The new `script` folder is meant to hold one-off or general purpose scripts,
+    such as data migration scripts, cleanup scripts, etc.
+
+    A new script generator allows you to create such scripts:
+
+    ```
+    bin/rails generate script my_script
+    bin/rails generate script data/backfill
+    ```
+
+    You can run the generated script using:
+
+    ```
+    bundle exec ruby script/my_script.rb
+    bundle exec ruby script/data/backfill.rb
+    ```
+
+    *Jerome Dalbert*, *Haroon Ahmed*
+
+*   Deprecate `bin/rake stats` in favor of `bin/rails stats`.
+
+    *Juan Vásquez*
+
+*   Add internal page `/rails/info/notes`, that displays the same information as `bin/rails notes`.
+
+    *Deepak Mahakale*
+
+*   Add Rubocop and GitHub Actions to plugin generator.
+    This can be skipped using --skip-rubocop and --skip-ci.
+
+    *Chris Oliver*
+
+*   Use Kamal for deployment by default, which includes generating a Rails-specific config/deploy.yml.
+    This can be skipped using --skip-kamal. See more: https://kamal-deploy.org/
 
     *DHH*
 
-*   Add Brakeman by default for static analysis of security vulnerabilities. Allow skipping with `--skip-brakeman option`.
-
-    *vipulnsward*
-
-*   Add RuboCop with rules from `rubocop-rails-omakase` by default. Skip with `--skip-rubocop`.
-
-    *DHH* and *zzak*
-
-*   Use `bin/rails runner --skip-executor` to not wrap the runner script with an
-    Executor.
-
-    *Ben Sheldon*
-
-*   Fix isolated engines to take `ActiveRecord::Base.table_name_prefix` into consideration.
-    This will allow for engine defined models, such as inside Active Storage, to respect
-    Active Record table name prefix configuration.
-
-    *Chedli Bourguiba*
-
-*   Fix running `db:system:change` when the app has no Dockerfile.
-
-    *Hartley McGuire*
-
-*   In Action Mailer previews, list inline attachments separately from normal
-    attachments. For example, attachments that were previously listed like
-
-      > Attachments: logo.png file1.pdf file2.pdf
-
-    will now be listed like
-
-      > Attachments: file1.pdf file2.pdf (Inline: logo.png)
-
-    *Christian Schmidt* and *Jonathan Hefner*
-
-*   In mailer preview, only show SMTP-To if it differs from the union of To, Cc and Bcc.
-
-    *Christian Schmidt*
-
-*   Enable YJIT by default on new applications running Ruby 3.3+.
-
-    Adds a `config/initializers/enable_yjit.rb` initializer that enables YJIT
-    when running on Ruby 3.3+.
-
-    *Jean Boussier*
-
-*   In Action Mailer previews, show date from message `Date` header if present.
-
-    *Sampat Badhe*
-
-*   Exit with non-zero status when the migration generator fails.
-
-    *Katsuhiko YOSHIDA*
-
-*   Use numeric UID and GID in Dockerfile template
-
-    The Dockerfile generated by `rails new` sets the default user and group
-    by name instead of UID:GID. This can cause the following error in Kubernetes:
-
-    ```
-    container has runAsNonRoot and image has non-numeric user (rails), cannot verify user is non-root
-    ```
-
-    This change sets default user and group by their numeric values.
-
-    *Ivan Fedotov*
-
-*   Disallow invalid values for rails new options.
-
-    The `--database`, `--asset-pipeline`, `--css`, and `--javascript` options
-    for `rails new` take different arguments. This change validates them.
-
-    *Tony Drake*, *Akhil G Krishnan*, *Petrik de Heus*
-
-*   Conditionally print `$stdout` when invoking `run_generator`.
-
-    In an effort to improve the developer experience when debugging
-    generator tests, we add the ability to conditionally print `$stdout`
-    instead of capturing it.
-
-    This allows for calls to `binding.irb` and `puts` work as expected.
-
-    ```sh
-    RAILS_LOG_TO_STDOUT=true ./bin/test test/generators/actions_test.rb
-    ```
-
-    *Steve Polito*
-
-*   Remove the option `config.public_file_server.enabled` from the generators
-    for all environments, as the value is the same in all environments.
-
-    *Adrian Hirt*
-
-Please check [7-1-stable](https://github.com/rails/rails/blob/7-1-stable/railties/CHANGELOG.md) for previous changes.
+Please check [7-2-stable](https://github.com/rails/rails/blob/7-2-stable/railties/CHANGELOG.md) for previous changes.

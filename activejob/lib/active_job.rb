@@ -36,6 +36,10 @@ module ActiveJob
 
   autoload :Base
   autoload :QueueAdapters
+  autoload :Arguments
+  autoload :DeserializationError, "active_job/arguments"
+  autoload :SerializationError, "active_job/arguments"
+  autoload :EnqueueAfterTransactionCommit
 
   eager_autoload do
     autoload :Serializers
@@ -47,13 +51,13 @@ module ActiveJob
 
   def self.use_big_decimal_serializer
     ActiveJob.deprecator.warn <<-WARNING.squish
-      Rails.application.config.active_job.use_big_decimal_serializer is deprecated and will be removed in Rails 7.3.
+      Rails.application.config.active_job.use_big_decimal_serializer is deprecated and will be removed in Rails 8.0.
     WARNING
   end
 
   def self.use_big_decimal_serializer=(value)
     ActiveJob.deprecator.warn <<-WARNING.squish
-      Rails.application.config.active_job.use_big_decimal_serializer is deprecated and will be removed in Rails 7.3.
+      Rails.application.config.active_job.use_big_decimal_serializer is deprecated and will be removed in Rails 8.0.
     WARNING
   end
 

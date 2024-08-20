@@ -1,117 +1,53 @@
-*   Include `IPAddr#prefix` when serializing an `IPAddr` using the
-    `ActiveSupport::MessagePack` serializer. This change is backward and forward
-    compatible — old payloads can still be read, and new payloads will be
-    readable by older versions of Rails.
+*   Add `escape_html_entities` option to `ActiveSupport::JSON.encode`.
 
-    *Taiki Komaba*
+    This allows for overriding the global configuration found at
+    `ActiveSupport.escape_html_entities_in_json` for specific calls to `to_json`.
 
-*   Add `default:` support for `ActiveSupport::CurrentAttributes.attribute`
-
+    This should be usable from controllers in the following manner:
     ```ruby
-    class Current < ActiveSupport::CurrentAttributes
-      attribute :counter, default: 0
-    end
-    ```
-
-    *Sean Doyle*
-
-*   Yield instance to `Object#with` block
-
-    ```ruby
-    client.with(timeout: 5_000) do |c|
-      c.get("/commits")
-    end
-    ```
-
-    *Sean Doyle*
-
-*   Use logical core count instead of physical core count to determine the
-    default number of workers when parallelizing tests.
-
-    *Jonathan Hefner*
-
-*   Fix `Time.now/DateTime.now/Date.today` to return results in a system timezone after `#travel_to`.
-
-    There is a bug in the current implementation of #travel_to:
-    it remembers a timezone of its argument, and all stubbed methods start
-    returning results in that remembered timezone. However, the expected
-    behaviour is to return results in a system timezone.
-
-    *Aleksei Chernenkov*
-
-*   Add `ErrorReported#unexpected` to report precondition violations.
-
-    For example:
-
-    ```ruby
-    def edit
-      if published?
-        Rails.error.unexpected("[BUG] Attempting to edit a published article, that shouldn't be possible")
-        return false
+    class MyController < ApplicationController
+      def index
+        render json: { hello: "world" }, escape_html_entities: false
       end
-      # ...
     end
     ```
 
-    The above will raise an error in development and test, but only report the error in production.
+    *Nigel Baillie*
 
-    *Jean Boussier*
+*   Raise when using key which can't respond to `#to_sym` in `EncryptedConfiguration`.
 
-*   Make the order of read_multi and write_multi notifications for `Cache::Store#fetch_multi` operations match the order they are executed in.
+    As is the case when trying to use an Integer or Float as a key, which is unsupported.
 
-    *Adam Renberg Tamm*
+    *zzak*
 
-*   Make return values of `Cache::Store#write` consistent.
+*   Deprecate addition and since between two `Time` and `ActiveSupport::TimeWithZone`.
 
-    The return value was not specified before. Now it returns `true` on a successful write,
-    `nil` if there was an error talking to the cache backend, and `false` if the write failed
-    for another reason (e.g. the key already exists and `unless_exist: true` was passed).
+    Previously adding time instances together such as `10.days.ago + 10.days.ago` or `10.days.ago.since(10.days.ago)` produced a nonsensical future date. This behavior is deprecated and will be removed in Rails 8.1.
 
-    *Sander Verdonschot*
+    *Nick Schwaderer*
 
-*   Fix logged cache keys not always matching actual key used by cache action.
+*   Support rfc2822 format for Time#to_fs & Date#to_fs.
 
-    *Hartley McGuire*
+    *Akshay Birajdar*
 
-*   Improve error messages of `assert_changes` and `assert_no_changes`
+*   Optimize load time for `Railtie#initialize_i18n`. Filter `I18n.load_path`s passed to the file watcher to only those
+    under `Rails.root`. Previously the watcher would grab all available locales, including those in gems
+    which do not require a watcher because they won't change.
 
-    `assert_changes` error messages now display objects with `.inspect` to make it easier
-    to differentiate nil from empty strings, strings from symbols, etc.
-    `assert_no_changes` error messages now surface the actual value.
+    *Nick Schwaderer*
 
-    *pcreux*
+*   Add a `filter` option to `in_order_of` to prioritize certain values in the sorting without filtering the results
+    by these values.
 
-*   Fix `#to_fs(:human_size)` to correctly work with negative numbers.
+    *Igor Depolli*
 
-    *Earlopain*
+*   Improve error message when using `assert_difference` or `assert_changes` with a
+    proc by printing the proc's source code (MRI only).
 
-*   Fix `BroadcastLogger#dup` so that it duplicates the logger's `broadcasts`.
+    *Richard Böhme*, *Jean Boussier*
 
-    *Andrew Novoselac*
+*   Add a new configuration value `:zone` for `ActiveSupport.to_time_preserves_timezone` and rename the previous `true` value to `:offset`. The new default value is `:zone`.
 
-*   Fix issue where `bootstrap.rb` overwrites the `level` of a `BroadcastLogger`'s `broadcasts`.
+    *Jason Kim*, *John Hawthorn*
 
-    *Andrew Novoselac*
-
-*   Fix compatibility with the `semantic_logger` gem.
-
-    The `semantic_logger` gem doesn't behave exactly like stdlib logger in that
-    `SemanticLogger#level` returns a Symbol while stdlib `Logger#level` returns an Integer.
-
-    This caused the various `LogSubscriber` classes in Rails to break when assigned a
-    `SemanticLogger` instance.
-
-    *Jean Boussier*, *ojab*
-
-*   Fix MemoryStore to prevent race conditions when incrementing or decrementing.
-
-    *Pierre Jambet*
-
-*   Implement `HashWithIndifferentAccess#to_proc`.
-
-    Previously, calling `#to_proc` on `HashWithIndifferentAccess` object used inherited `#to_proc`
-    method from the `Hash` class, which was not able to access values using indifferent keys.
-
-    *fatkodima*
-
-Please check [7-1-stable](https://github.com/rails/rails/blob/7-1-stable/activesupport/CHANGELOG.md) for previous changes.
+Please check [7-2-stable](https://github.com/rails/rails/blob/7-2-stable/activesupport/CHANGELOG.md) for previous changes.

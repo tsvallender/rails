@@ -1,89 +1,86 @@
-*   Add `allow_browser` to set minimum browser versions for the application.
-
-    A browser that's blocked will by default be served the file in `public/426.html` with a HTTP status code of "426 Upgrade Required".
-
-    ```ruby
-    class ApplicationController < ActionController::Base
-      # Allow only browsers natively supporting webp images, web push, badges, import maps, CSS nesting + :has
-      allow_browser versions: :modern
-    end
-
-    class ApplicationController < ActionController::Base
-      # All versions of Chrome and Opera will be allowed, but no versions of "internet explorer" (ie). Safari needs to be 16.4+ and Firefox 121+.
-      allow_browser versions: { safari: 16.4, firefox: 121, ie: false }
-    end
-
-    class MessagesController < ApplicationController
-      # In addition to the browsers blocked by ApplicationController, also block Opera below 104 and Chrome below 119 for the show action.
-      allow_browser versions: { opera: 104, chrome: 119 }, only: :show
-    end
-    ```
-
-    *DHH*
-
-*   Add rate limiting API.
-
-    ```ruby
-    class SessionsController < ApplicationController
-      rate_limit to: 10, within: 3.minutes, only: :create
-    end
-
-    class SignupsController < ApplicationController
-      rate_limit to: 1000, within: 10.seconds,
-        by: -> { request.domain }, with: -> { redirect_to busy_controller_url, alert: "Too many signups!" }, only: :new
-    end
-    ```
-
-    *DHH*, *Jean Boussier*
-
-*   Add `image/svg+xml` to the compressible content types of ActionDispatch::Static
-
-    *Georg Ledermann*
-
-*   Add instrumentation for ActionController::Live#send_stream
-
-    Allows subscribing to `send_stream` events. The event payload contains the filename, disposition, and type.
-
-    *Hannah Ramadan*
-
-*   Add support for `with_routing` test helper in `ActionDispatch::IntegrationTest`
+*   Remove `racc` dependency by manually writing `ActionDispatch::Journey::Scanner`.
 
     *Gannon McGibbon*
 
-*   Remove deprecated support to set `Rails.application.config.action_dispatch.show_exceptions` to `true` and `false`.
+*   Speed up `ActionDispatch::Routing::Mapper::Scope#[]` by merging frame hashes.
 
-    *Rafael Mendonça França*
+    *Gannon McGibbon*
 
-*   Remove deprecated `speaker`, `vibrate`, and `vr` permissions policy directives.
+*   Allow bots to ignore `allow_browser`.
 
-    *Rafael Mendonça França*
+    *Matthew Nguyen*
 
-*   Remove deprecated `Rails.application.config.action_dispatch.return_only_request_media_type_on_content_type`.
+*   Deprecate drawing routes with hash key paths to make routing faster.
 
-    *Rafael Mendonça França*
+    ```ruby
+    # Before
+    get "/users" => "users#index"
+    post "/logout" => :sessions
+    mount MyApp => "/my_app"
 
-*   Deprecate `Rails.application.config.action_controller.allow_deprecated_parameters_hash_equality`.
+    # After
+    get "/users", to: "users#index"
+    post "/logout", to: "sessions#logout"
+    mount MyApp, at: "/my_app"
+    ```
 
-    *Rafael Mendonça França*
+    *Gannon McGibbon*
 
-*   Remove deprecated comparison between `ActionController::Parameters` and `Hash`.
+*   Deprecate drawing routes with multiple paths to make routing faster.
+    You may use `with_options` or a loop to make drawing multiple paths easier.
 
-    *Rafael Mendonça França*
+    ```ruby
+    # Before
+    get "/users", "/other_path", to: "users#index"
 
-*   Remove deprecated constant `AbstractController::Helpers::MissingHelperError`.
+    # After
+    get "/users", to: "users#index"
+    get "/other_path", to: "users#index"
+    ```
 
-    *Rafael Mendonça França*
+    *Gannon McGibbon*
 
-*   Fix a race condition that could cause a `Text file busy - chromedriver`
-    error with parallel system tests
+*   Make `http_cache_forever` use `immutable: true`
 
-    *Matt Brictson*
+    *Nate Matykiewicz*
 
-*   Add `racc` as a dependency since it will become a bundled gem in Ruby 3.4.0
+*   Add `config.action_dispatch.strict_freshness`.
 
-    *Hartley McGuire*
-*   Remove deprecated constant `ActionDispatch::IllegalStateError`.
+    When set to `true`, the `ETag` header takes precedence over the `Last-Modified` header when both are present,
+    as specified by RFC 7232, Section 6.
 
-    *Rafael Mendonça França*
+    Defaults to `false` to maintain compatibility with previous versions of Rails, but is enabled as part of
+    Rails 8.0 defaults.
 
-Please check [7-1-stable](https://github.com/rails/rails/blob/7-1-stable/actionpack/CHANGELOG.md) for previous changes.
+    *heka1024*
+
+*   Support `immutable` directive in Cache-Control
+
+    ```ruby
+    expires_in 1.minute, public: true, immutable: true
+    # Cache-Control: public, max-age=60, immutable
+    ```
+
+    *heka1024*
+
+*   Add `:wasm_unsafe_eval` mapping for `content_security_policy`
+
+    ```ruby
+    # Before
+    policy.script_src "'wasm-unsafe-eval'"
+
+    # After
+    policy.script_src :wasm_unsafe_eval
+    ```
+
+    *Joe Haig*
+
+*   Add `display_capture` and `keyboard_map` in `permissions_policy`
+
+    *Cyril Blaecke*
+
+*   Add `connect` route helper.
+
+    *Samuel Williams*
+
+Please check [7-2-stable](https://github.com/rails/rails/blob/7-2-stable/actionpack/CHANGELOG.md) for previous changes.

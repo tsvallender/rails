@@ -430,6 +430,7 @@ module ActionController
       res = get :write_sleep_autoload
       res.each { }
       ActiveSupport::Dependencies.interlock.done_running
+      pass
     end
 
     def test_async_stream
@@ -652,7 +653,7 @@ class LiveStreamRouterTest < ActionDispatch::IntegrationTest
   end
 
   routes.draw do
-    get "/test" => "live_stream_router_test/test#index"
+    get "/test", to: "live_stream_router_test/test#index"
   end
 
   def app

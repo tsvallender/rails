@@ -912,6 +912,14 @@ irb> Book.order("title ASC").order("created_at DESC")
 SELECT * FROM books ORDER BY title ASC, created_at DESC
 ```
 
+You can also order from a joined table
+
+```ruby
+Book.includes(:author).order(books: { print_year: :desc }, authors: { name: :asc })
+# OR
+Book.includes(:author).order('books.print_year desc', 'authors.name asc')
+```
+
 WARNING: In most database systems, on selecting fields with `distinct` from a result set using methods like `select`, `pluck` and `ids`; the `order` method will raise an `ActiveRecord::StatementInvalid` exception unless the field(s) used in `order` clause are included in the select list. See the next section for selecting fields from the result set.
 
 Selecting Specific Fields
@@ -1736,13 +1744,12 @@ books.each do |book|
 end
 ```
 
-The above code will execute just **2** queries, as opposed to the **11** queries from the original case:
+The above code will execute just **1** query, as opposed to the **11** queries from the original case:
 
 ```sql
-SELECT DISTINCT books.id FROM books LEFT OUTER JOIN authors ON authors.id = books.author_id LIMIT 10
-SELECT books.id AS t0_r0, books.last_name AS t0_r1, ...
-  FROM books LEFT OUTER JOIN authors ON authors.id = books.author_id
-  WHERE books.id IN (1,2,3,4,5,6,7,8,9,10)
+SELECT "books"."id" AS t0_r0, "books"."title" AS t0_r1, ... FROM "books"
+  LEFT OUTER JOIN "authors" ON "authors"."id" = "books"."author_id"
+  LIMIT 10
 ```
 
 NOTE: The `eager_load` method uses an array, hash, or a nested hash of array/hash in the same way as the `includes` method to load any number of associations with a single `Model.find` call. Also, like the `includes` method, you can specify conditions for eager loaded associations.
@@ -2602,13 +2609,13 @@ Running EXPLAIN
 
 You can run [`explain`][] on a relation. EXPLAIN output varies for each database.
 
-For example, running
+For example, running:
 
 ```ruby
 Customer.where(id: 1).joins(:orders).explain
 ```
 
-may yield
+may yield this for MySQL and MariaDB:
 
 ```sql
 EXPLAIN SELECT `customers`.* FROM `customers` INNER JOIN `orders` ON `orders`.`customer_id` = `customers`.`id` WHERE `customers`.`id` = 1
@@ -2628,11 +2635,9 @@ EXPLAIN SELECT `customers`.* FROM `customers` INNER JOIN `orders` ON `orders`.`c
 2 rows in set (0.00 sec)
 ```
 
-under MySQL and MariaDB.
-
 Active Record performs a pretty printing that emulates that of the
 corresponding database shell. So, the same query running with the
-PostgreSQL adapter would yield instead
+PostgreSQL adapter would yield instead:
 
 ```sql
 EXPLAIN SELECT "customers".* FROM "customers" INNER JOIN "orders" ON "orders"."customer_id" = "customers"."id" WHERE "customers"."id" = $1 [["id", 1]]
@@ -2650,7 +2655,7 @@ EXPLAIN SELECT "customers".* FROM "customers" INNER JOIN "orders" ON "orders"."c
 
 Eager loading may trigger more than one query under the hood, and some queries
 may need the results of previous ones. Because of that, `explain` actually
-executes the query, and then asks for the query plans. For example,
+executes the query, and then asks for the query plans. For example, running:
 
 ```ruby
 Customer.where(id: 1).includes(:orders).explain
@@ -2706,7 +2711,7 @@ and may yield this for PostgreSQL:
 
 ### Explain Options
 
-For databases and adapters which support them (currently PostgreSQL and MySQL), options can be passed to provide deeper analysis.
+For databases and adapters which support them (currently PostgreSQL, MySQL, and MariaDB), options can be passed to provide deeper analysis.
 
 Using PostgreSQL, the following:
 

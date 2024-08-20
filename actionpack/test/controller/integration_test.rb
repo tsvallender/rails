@@ -3,6 +3,7 @@
 require "abstract_unit"
 require "controller/fake_controllers"
 require "rails/engine"
+require "launchy"
 
 class SessionTest < ActiveSupport::TestCase
   StubApp = lambda { |env|
@@ -648,7 +649,7 @@ class IntegrationProcessTest < ActionDispatch::IntegrationTest
         end
 
         set.draw do
-          get "moved" => redirect("/method")
+          get "moved", to: redirect("/method")
 
           ActionDispatch.deprecator.silence do
             match ":action", to: controller, via: [:get, :post], as: :action
@@ -783,9 +784,9 @@ class ApplicationIntegrationTest < ActionDispatch::IntegrationTest
     get "foo", to: "application_integration_test/test#index", as: :foo
     get "bar", to: "application_integration_test/test#index", as: :bar
 
-    mount MountedApp => "/mounted", :as => "mounted"
-    get "fooz" => proc { |env| [ 200, { ActionDispatch::Constants::X_CASCADE => "pass" }, [ "omg" ] ] },
-      :anchor => false
+    mount MountedApp, at: "/mounted", as: "mounted"
+    get "fooz", to: proc { |env| [ 200, { ActionDispatch::Constants::X_CASCADE => "pass" }, [ "omg" ] ] },
+      anchor: false
     get "fooz", to: "application_integration_test/test#index"
   end
 
@@ -889,7 +890,7 @@ class ControllerWithHeadersMethodIntegrationTest < ActionDispatch::IntegrationTe
   test "doesn't call controller's headers method" do
     with_routing do |routes|
       routes.draw do
-        get "/ok" => "controller_with_headers_method_integration_test/test#index"
+        get "/ok", to: "controller_with_headers_method_integration_test/test#index"
       end
 
       get "/ok"
@@ -940,10 +941,10 @@ class UrlOptionsIntegrationTest < ActionDispatch::IntegrationTest
     default_url_options host: "foo.com"
 
     scope module: "url_options_integration_test" do
-      get "/foo" => "foo#index", :as => :foos
-      get "/foo/:id" => "foo#show", :as => :foo
-      get "/foo/:id/edit" => "foo#edit", :as => :edit_foo
-      get "/bar" => "bar#index", :as => :bars
+      get "/foo", to: "foo#index", as: :foos
+      get "/foo/:id", to: "foo#show", as: :foo
+      get "/foo/:id/edit", to: "foo#edit", as: :edit_foo
+      get "/bar", to: "bar#index", as: :bars
     end
   end
 
@@ -1003,7 +1004,7 @@ class HeadWithStatusActionIntegrationTest < ActionDispatch::IntegrationTest
   end
 
   routes.draw do
-    get "/foo/status" => "head_with_status_action_integration_test/foo#status"
+    get "/foo/status", to: "head_with_status_action_integration_test/foo#status"
   end
 
   test "get /foo/status with head result does not cause stack overflow error" do
@@ -1066,7 +1067,7 @@ class IntegrationRequestsWithoutSetup < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          get ":action" => FooController
+          get ":action", to: FooController
         end
       end
 
@@ -1114,7 +1115,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          post ":action" => FooController
+          post ":action", to: FooController
         end
       end
 
@@ -1141,7 +1142,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          post ":action" => FooController
+          post ":action", to: FooController
         end
       end
 
@@ -1202,7 +1203,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          get ":action" => FooController
+          get ":action", to: FooController
         end
       end
 
@@ -1216,7 +1217,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          get ":action" => FooController
+          get ":action", to: FooController
         end
       end
 
@@ -1230,7 +1231,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          get ":action" => FooController
+          get ":action", to: FooController
         end
       end
 
@@ -1246,7 +1247,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
     with_routing do |routes|
       routes.draw do
         ActionDispatch.deprecator.silence do
-          get ":action" => FooController
+          get ":action", to: FooController
         end
       end
 
@@ -1261,7 +1262,7 @@ class IntegrationRequestEncodersTest < ActionDispatch::IntegrationTest
       with_routing do |routes|
         routes.draw do
           ActionDispatch.deprecator.silence do
-            post ":action" => FooController
+            post ":action", to: FooController
           end
         end
 
@@ -1307,3 +1308,89 @@ class IntegrationFileUploadTest < ActionDispatch::IntegrationTest
     assert_equal "45142", @response.body
   end
 end
+
+# rubocop:disable Lint/Debugger
+class PageDumpIntegrationTest < ActionDispatch::IntegrationTest
+  class FooController < ActionController::Base
+    def index
+      render plain: "Hello world"
+    end
+
+    def redirect
+      redirect_to action: :index
+    end
+  end
+
+  def with_root(&block)
+    Rails.stub(:root, Pathname.getwd.join("test"), &block)
+  end
+
+  def setup
+    with_root do
+      remove_dumps
+    end
+  end
+
+  def teardown
+    with_root do
+      remove_dumps
+    end
+  end
+
+  def self.routes
+    @routes ||= ActionDispatch::Routing::RouteSet.new
+  end
+
+  def self.call(env)
+    routes.call(env)
+  end
+
+  def app
+    self.class
+  end
+
+  def dump_path
+    Pathname.new(Dir["#{Rails.root}/tmp/html_dump/#{method_name}*"].sole)
+  end
+
+  def remove_dumps
+    Dir["#{Rails.root}/tmp/html_dump/#{method_name}*"].each(&File.method(:delete))
+  end
+
+  routes.draw do
+    get "/", to: "page_dump_integration_test/foo#index"
+    get "/redirect", to: "page_dump_integration_test/foo#redirect"
+  end
+
+  test "save_and_open_page saves a copy of the page and call to Launchy" do
+    launchy_called = false
+    get "/"
+    with_root do
+      Launchy.stub(:open, ->(path) { launchy_called = (path == dump_path) }) do
+        save_and_open_page
+      end
+      assert launchy_called
+      assert_equal File.read(dump_path), response.body
+    end
+  end
+
+  test "prints a warning to install launchy if it can't be loaded" do
+    get "/"
+    with_root do
+      Launchy.stub(:open, ->(path) { raise LoadError.new }) do
+        self.stub(:warn, ->(warning) { warning.include?("Please install the launchy gem to open the file automatically.") }) do
+          save_and_open_page
+        end
+      end
+      assert_equal File.read(dump_path), response.body
+    end
+  end
+
+  test "raises when called after a redirect" do
+    with_root do
+      get "/redirect"
+      assert_raise(InvalidResponse) { save_and_open_page }
+    end
+  end
+end
+# rubocop:enable Lint/Debugger
